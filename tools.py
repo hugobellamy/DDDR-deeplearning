@@ -3,59 +3,74 @@ import torch
 from sklearn.model_selection import train_test_split
 import numpy as np
 import torch.nn as nn
+from sklearn.utils import shuffle
 
 
 class Dataset:
-    def __init__(self, X, y, y_uncert):
+    def __init__(self, X, y, y_uncert, dose_response):
         if len(X) != len(y):
             print(
                 f"Error length of feature array, {len(X)}, does not match length of value array, {len(y)}"
             )
-        self.X = X
-        self.y = y
+
+        new_X = []
+        new_response = []
+        new_dose = []
+        y_uncert_new = []
+        for i in range(len(X)):
+            for dr in dose_response[i]:
+                new_X.append(X[i])
+                new_dose.append(dr[0])
+                new_response.append(dr[1])
+                y_uncert_new.append(y_uncert[i])
+
+        self.X, self.dose, self.response, self.y_uncert = shuffle(
+            new_X, new_dose, new_response, y_uncert_new
+        )
+
         self.feat_size = len(X[0])
-        self.y_uncert = y_uncert
 
     def __len__(self):
-        return len(self.y)
+        return len(self.dose)
 
     def __getitem__(self, idx):
         X_tensor = torch.tensor(self.X[idx], dtype=torch.float32)
-        y_tensor = torch.tensor(self.y[idx], dtype=torch.float)
+        dose = torch.tensor(self.dose[idx], dtype=torch.float)
+        response = torch.tensor(self.response[idx], dtype=torch.float)
         y_uncert_tensor = torch.tensor(self.y_uncert[idx], dtype=torch.float)
 
-        return X_tensor, y_tensor, y_uncert_tensor
+        return X_tensor, dose, response, y_uncert_tensor
 
 
 def load_data(dataset_id, half=0, test=False):
     data = pickle.load(open("converted_data/" + str(dataset_id) + ".pkl", "rb"))
+
+    # data is
+    # [basic_data, bayes_data, dose_response, use_dose_response, sigma_estimate]
+    # dose_response and use_dose_response are the same
+    # they varied at an earlier stage when we were making semi-real dataset
     sub_data = data[half]
-    if test:
-        dose_response = data[2]  # 3 is for training, 2 is for testing
-    else:
-        dose_response = data[3]
+    dose_response = data[2]  # 3 is for training, 2 is for testing
+
     X, y, y_uncert = sub_data
-    X_train, X_test, y_train, y_test, uncert_train, uncert_test = train_test_split(
-        X, y, y_uncert, test_size=0.2, random_state=42
-    )
+    (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        uncert_train,
+        uncert_test,
+        dose_response_train,
+        dose_response_test,
+    ) = train_test_split(X, y, y_uncert, dose_response, test_size=0.2, random_state=42)
     # replace uncert test because we dont want to do a weighted calculation at test time
     uncert_test = np.ones(len(y_test))
-    # test data is ignored here as is uncertainty for now
-    # CHANGE LATER
     return (
-        Dataset(X_train, y_train, uncert_train),
-        Dataset(X_test, y_test, uncert_test),
+        Dataset(X_train, y_train, uncert_train, dose_response_train),
+        Dataset(X_test, y_test, uncert_test, dose_response_test),
         [X_train, y_train],
         [X_test, y_test],
     )
-
-
-def weighted_loss(y_pred, y_true, weights=None):
-    # convert weights to a pytorch tensor
-    if weights is None:
-        weights = [np.ones(len(y_pred))]
-    mean_differences = (y_pred - y_true) ** 2
-    return torch.dot(weights.flatten(), mean_differences.flatten()) / weights.sum()
 
 
 class weighted_expwise_loss(nn.Module):
@@ -63,9 +78,15 @@ class weighted_expwise_loss(nn.Module):
         self.power_val = power
         super().__init__()
 
-    def forward(self, y_pred, y_true, weights=None):
+    def forward(self, ec50, dose, response, weights=None):
         if weights is None:
-            weights = torch.tensor([np.ones(len(y_pred))])
+            weights = torch.tensor([np.ones(len(dose))])
         weights = weights**self.power_val
-        mean_differences = (y_pred - y_true) ** 2
+        pred_responses = hill_equation(ec50, dose)
+        mean_differences = (pred_responses - response) ** 2
         return torch.dot(weights.flatten(), mean_differences.flatten()) / weights.sum()
+
+
+def hill_equation(neg_log_EC50s, doses):
+    EC50s = 10 ** (-neg_log_EC50s)  # Convert -log(EC50) to EC50
+    return (100 * doses) / (EC50s + doses)  # Hill equation with slope = 1

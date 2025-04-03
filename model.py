@@ -84,11 +84,12 @@ def train_loop(dataloader, model, learning_rate=0.001, loss_fn=None):
     # Set the model to training mode - important for batch normalization and dropout layers
     # Unnecessary in this situation but added for best practices
     model.train()
-    for batch, (X, y, y_uncert) in enumerate(dataloader):
+    for batch, (X, dose, response, y_uncert) in enumerate(dataloader):
         # Compute prediction and loss
         pred = model(X)
-        y = y.unsqueeze(1)
-        loss = loss_fn(pred, y, y_uncert)
+        dose = dose.unsqueeze(1)
+        response = response.unsqueeze(1)
+        loss = loss_fn(pred, dose, response, y_uncert)
         # Backpropagation
         loss.backward()
         optimizer.step()
@@ -104,14 +105,15 @@ def test_loop(dataloader, model, loss_fn=None):
         # If no loss function is provided, use Mean Squared Error
         loss_fn = nn.MSELoss()
     with torch.no_grad():
-        for X, y, y_uncert in dataloader:
+        for X, dose, response, y_uncert in dataloader:
             # Make predictions
             pred = model(X)  # Use the trained model
 
             # Reshape y to match pred's shape [batch_size, 1]
-            y = y.view(1)
+            dose = dose.view(1)
+            response = response.view(1)
 
             # Calculate the loss for the current batch
-            batch_loss = loss_fn(pred, y, y_uncert)
+            batch_loss = loss_fn(pred, dose, response, y_uncert)
             test_loss += batch_loss.item()  # Accumulate the loss
     return test_loss / len(dataloader)
