@@ -7,10 +7,10 @@ from sklearn.metrics import mean_squared_error
 import numpy as np
 
 hidden_dim = 300  # Number of nodes in each hidden layer
-learning_rate = 0.001
+learning_rate = 0.01
 batch_size = 50
 
-power_val = 0.1
+power_val = 0.5
 
 train_data, test_data, train_data_alt, test_data_alt = tools.load_data(1902)
 feature_length = train_data.feat_size
