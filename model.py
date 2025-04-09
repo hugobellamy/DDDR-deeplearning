@@ -99,7 +99,7 @@ def train_loop(dataloader, model, learning_rate=0.001, loss_fn=None):
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
 
-def test_loop(dataloader, model, loss_fn=None):
+def test_loop(dataloader, model, loss_fn=None, sklearn=False):
     test_loss = 0
     if loss_fn is None:
         # If no loss function is provided, use Mean Squared Error
@@ -107,7 +107,11 @@ def test_loop(dataloader, model, loss_fn=None):
     with torch.no_grad():
         for X, dose, response, y_uncert in dataloader:
             # Make predictions
-            pred = model(X)  # Use the trained model
+            if sklearn:
+                pred = model.predict([X])
+                pred = torch.tensor(pred).float()
+            else:
+                pred = model(X)  # Use the trained model
 
             # Reshape y to match pred's shape [batch_size, 1]
             dose = dose.view(1)

@@ -22,8 +22,12 @@ class Dataset:
                 new_X.append(X[i])
                 new_dose.append(dr[0])
                 new_response.append(dr[1])
+                if not np.isfinite(dr[0]):
+                    print(dr[0])
                 y_uncert_new.append(y_uncert[i])
-
+        y_uncert_new = np.array(y_uncert_new) / np.amax(y_uncert_new)
+        y_uncert_new = np.array([np.exp(-x) for x in y_uncert_new])
+        print(np.amin(y_uncert_new))
         self.X, self.dose, self.response, self.y_uncert = shuffle(
             new_X, new_dose, new_response, y_uncert_new
         )
@@ -38,12 +42,13 @@ class Dataset:
         dose = torch.tensor(self.dose[idx], dtype=torch.float)
         response = torch.tensor(self.response[idx], dtype=torch.float)
         y_uncert_tensor = torch.tensor(self.y_uncert[idx], dtype=torch.float)
-
         return X_tensor, dose, response, y_uncert_tensor
 
 
 def load_data(dataset_id, half=0, test=False):
-    data = pickle.load(open("converted_data/" + str(dataset_id) + ".pkl", "rb"))
+    print(dataset_id)
+    with open("converted_data/"+str(dataset_id)+".pkl", "rb") as f:
+        data = pickle.load(f)
 
     # data is
     # [basic_data, bayes_data, dose_response, use_dose_response, sigma_estimate]
@@ -88,5 +93,6 @@ class weighted_expwise_loss(nn.Module):
 
 
 def hill_equation(neg_log_EC50s, doses):
-    EC50s = 10 ** (-neg_log_EC50s)  # Convert -log(EC50) to EC50
+    neg_log_EC50s = torch.clamp(neg_log_EC50s, min=-10, max=10)
+    EC50s = 10 ** (-neg_log_EC50s)
     return (100 * doses) / (EC50s + doses)  # Hill equation with slope = 1
