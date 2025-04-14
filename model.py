@@ -79,24 +79,20 @@ def train_loop(dataloader, model, learning_rate=0.001, loss_fn=None):
     if loss_fn is None:
         # If no loss function is provided, use Mean Squared Error
         loss_fn = nn.MSELoss()
-    size = len(dataloader.dataset)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     # Set the model to training mode - important for batch normalization and dropout layers
     # Unnecessary in this situation but added for best practices
     model.train()
-    for batch, (X, dose, response, y_uncert) in enumerate(dataloader):
+    for batch, (X, dose, response, y_uncert, y) in enumerate(dataloader):
         # Compute prediction and loss
         pred = model(X)
         dose = dose.unsqueeze(1)
         response = response.unsqueeze(1)
-        loss = loss_fn(pred, dose, response, y_uncert)
+        loss = loss_fn(pred, dose, response, y, y_uncert)
         # Backpropagation
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        if batch % 10 == 0:
-            loss, current = loss.item(), batch * size + len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
 
 def test_loop(dataloader, model, loss_fn=None, sklearn=False):
@@ -105,7 +101,7 @@ def test_loop(dataloader, model, loss_fn=None, sklearn=False):
         # If no loss function is provided, use Mean Squared Error
         loss_fn = nn.MSELoss()
     with torch.no_grad():
-        for X, dose, response, y_uncert in dataloader:
+        for X, dose, response, y_uncert, y in dataloader:
             # Make predictions
             if sklearn:
                 pred = model.predict([X])
@@ -116,8 +112,11 @@ def test_loop(dataloader, model, loss_fn=None, sklearn=False):
             # Reshape y to match pred's shape [batch_size, 1]
             dose = dose.view(1)
             response = response.view(1)
+            y = y.view(1)
+            y_uncert = y_uncert.view(1)
 
             # Calculate the loss for the current batch
-            batch_loss = loss_fn(pred, dose, response, y_uncert)
+            batch_loss = loss_fn(pred, dose, response, y, y_uncert)
             test_loss += batch_loss.item()  # Accumulate the loss
+
     return test_loss / len(dataloader)

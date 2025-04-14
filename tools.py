@@ -17,9 +17,11 @@ class Dataset:
         new_response = []
         new_dose = []
         y_uncert_new = []
+        y_new = []
         for i in range(len(X)):
             for dr in dose_response[i]:
                 new_X.append(X[i])
+                y_new.append(y[i])
                 new_dose.append(dr[0])
                 new_response.append(dr[1])
                 if not np.isfinite(dr[0]):
@@ -27,9 +29,8 @@ class Dataset:
                 y_uncert_new.append(y_uncert[i])
         y_uncert_new = np.array(y_uncert_new) / np.amax(y_uncert_new)
         y_uncert_new = np.array([np.exp(-x) for x in y_uncert_new])
-        print(np.amin(y_uncert_new))
-        self.X, self.dose, self.response, self.y_uncert = shuffle(
-            new_X, new_dose, new_response, y_uncert_new
+        self.X, self.dose, self.response, self.y_uncert, self.y = shuffle(
+            new_X, new_dose, new_response, y_uncert_new, y_new
         )
 
         self.feat_size = len(X[0])
@@ -42,12 +43,41 @@ class Dataset:
         dose = torch.tensor(self.dose[idx], dtype=torch.float)
         response = torch.tensor(self.response[idx], dtype=torch.float)
         y_uncert_tensor = torch.tensor(self.y_uncert[idx], dtype=torch.float)
-        return X_tensor, dose, response, y_uncert_tensor
+        y_tensor = torch.tensor(self.y[idx], dtype=torch.float)
+        return X_tensor, dose, response, y_uncert_tensor, y_tensor
+
+
+class StandardDataset:
+    def __init__(self, X, y, y_uncert, dose_response):
+        if len(X) != len(y):
+            print(
+                f"Error length of feature array, {len(X)}, does not match length of value array, {len(y)}"
+            )
+
+        y_uncert_new = np.array(y_uncert) / np.amax(y_uncert)
+        y_uncert_new = np.array([np.exp(-x) for x in y_uncert_new])
+        self.X, self.y_uncert, self.y = shuffle(X, y_uncert_new, y)
+        self.feat_size = len(X[0])
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        X_tensor = torch.tensor(self.X[idx], dtype=torch.float32)
+        y_uncert_tensor = torch.tensor(self.y_uncert[idx], dtype=torch.float)
+        y_tensor = torch.tensor(self.y[idx], dtype=torch.float)
+        return (
+            X_tensor,
+            torch.tensor([[0, 0], [0, 0]]),
+            torch.tensor([[0, 0], [0, 0]]),
+            y_uncert_tensor,
+            y_tensor,
+        )
 
 
 def load_data(dataset_id, half=0, test=False):
     print(dataset_id)
-    with open("converted_data/"+str(dataset_id)+".pkl", "rb") as f:
+    with open("converted_data/" + str(dataset_id) + ".pkl", "rb") as f:
         data = pickle.load(f)
 
     # data is
@@ -75,6 +105,7 @@ def load_data(dataset_id, half=0, test=False):
         Dataset(X_test, y_test, uncert_test, dose_response_test),
         [X_train, y_train],
         [X_test, y_test],
+        StandardDataset(X_train, y_train, uncert_train, dose_response_train),
     )
 
 
@@ -83,13 +114,22 @@ class weighted_expwise_loss(nn.Module):
         self.power_val = power
         super().__init__()
 
-    def forward(self, ec50, dose, response, weights=None):
+    def forward(self, ec50, dose, response, y, weights=None):
         if weights is None:
-            weights = torch.tensor([np.ones(len(dose))])
+            weights = torch.tensor(np.ones(len(dose)))
         weights = weights**self.power_val
         pred_responses = hill_equation(ec50, dose)
         mean_differences = (pred_responses - response) ** 2
         return torch.dot(weights.flatten(), mean_differences.flatten()) / weights.sum()
+
+
+class mse_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse = nn.MSELoss()
+
+    def forward(self, ec50, dose, response, y, weights=None):
+        return self.mse(ec50.flatten(), y.flatten())
 
 
 def hill_equation(neg_log_EC50s, doses):
